@@ -130,8 +130,8 @@ MILESI_LOGO = f"""
     </div>
   </div>
   <div>
-    <div style="font-size:20px;font-weight:700;color:#222">CRM — Seguimiento de Clientes</div>
-    <div style="font-size:13px;color:#666">Gestión comercial y asignación de vendedores</div>
+    <div style="font-size:20px;font-weight:700;color:#ffffff">CRM — Seguimiento de Clientes</div>
+    <div style="font-size:13px;color:#aaaaaa">Gestión comercial y asignación de vendedores</div>
   </div>
 </div>
 """
