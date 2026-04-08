@@ -112,14 +112,44 @@ def auto_save(cid, row_dict, usuario):
         'ultima_actualizacion': datetime.now().strftime('%Y-%m-%d %H:%M'),
     }])
 
+# ── Branding ───────────────────────────────────────────────────────────────────
+MILESI_TEAL   = '#00838F'
+MILESI_ORANGE = '#E8772E'
+
+MILESI_LOGO = f"""
+<div style="display:flex;align-items:center;gap:16px;padding:8px 0 4px 0">
+  <div style="border:3px solid {MILESI_TEAL};border-radius:50%/50%;
+              padding:10px 22px;background:white;line-height:1.2;text-align:center;
+              box-shadow:0 2px 8px rgba(0,131,143,0.15)">
+    <div style="font-size:20px;font-weight:800;letter-spacing:-0.5px">
+      <span style="color:#222">Mile<span style="font-size:22px">SI</span></span>
+      <span style="color:{MILESI_ORANGE}"> Hogar</span>
+    </div>
+    <div style="font-size:8px;color:#666;letter-spacing:0.3px;margin-top:1px">
+      La atención que estabas esperando
+    </div>
+  </div>
+  <div>
+    <div style="font-size:20px;font-weight:700;color:#222">CRM — Seguimiento de Clientes</div>
+    <div style="font-size:13px;color:#666">Gestión comercial y asignación de vendedores</div>
+  </div>
+</div>
+"""
+
 # ── Page config ────────────────────────────────────────────────────────────────
-st.set_page_config(page_title='CRM Milesi', layout='wide', page_icon='📋')
-st.markdown("""
+st.set_page_config(page_title='CRM · Milesi Hogar', layout='wide', page_icon='🏠')
+st.markdown(f"""
 <style>
-div[data-testid="metric-container"]{
-    background:#f8f9fa;border:1px solid #dee2e6;border-radius:8px;padding:10px}
-div[data-testid="stVerticalBlockBorderWrapper"]{border-radius:12px}
-.filter-bar{background:#f1f3f5;border-radius:10px;padding:10px 16px;margin-bottom:12px}
+div[data-testid="metric-container"]{{
+    background:#f8f9fa;border:1px solid #dee2e6;border-radius:8px;padding:10px}}
+div[data-testid="stVerticalBlockBorderWrapper"]{{border-radius:12px}}
+.filter-bar{{background:#f1f3f5;border-radius:10px;padding:10px 16px;margin-bottom:12px}}
+/* Botón primario con color Milesi */
+div[data-testid="stButton"] button[kind="primary"]{{
+    background:{MILESI_TEAL} !important;border-color:{MILESI_TEAL} !important}}
+/* Pills activas */
+div[data-testid="stPills"] span[aria-selected="true"]{{
+    background:{MILESI_TEAL} !important}}
 </style>""", unsafe_allow_html=True)
 
 # ── Login ──────────────────────────────────────────────────────────────────────
@@ -222,7 +252,8 @@ with st.sidebar:
         vista = 'Ficheros'
 
 # ── HEADER ─────────────────────────────────────────────────────────────────────
-st.markdown("## 📋 CRM — Local Electrodomésticos")
+st.markdown(MILESI_LOGO, unsafe_allow_html=True)
+st.divider()
 
 # ── BARRA DE FILTROS (arriba) ──────────────────────────────────────────────────
 with st.container():
@@ -409,4 +440,20 @@ for i, (_, row) in enumerate(page_data.iterrows()):
                               on_change=auto_save, args=cb_args)
 
 st.divider()
-st.caption("CRM Local Electrodomésticos · Grupo Yex")
+
+# ── FOOTER ─────────────────────────────────────────────────────────────────────
+import os, base64
+_logo_path = os.path.join(os.path.dirname(__file__), 'assets', 'logo_grupoyex.png')
+if os.path.exists(_logo_path):
+    with open(_logo_path, 'rb') as f:
+        _b64 = base64.b64encode(f.read()).decode()
+    st.markdown(
+        f'<div style="display:flex;align-items:center;justify-content:flex-end;'
+        f'gap:10px;opacity:0.6;padding:4px 0">'
+        f'<span style="font-size:11px;color:#888">Desarrollado por</span>'
+        f'<img src="data:image/png;base64,{_b64}" style="height:28px">'
+        f'</div>',
+        unsafe_allow_html=True
+    )
+else:
+    st.caption("Desarrollado por Grupo Yex")
