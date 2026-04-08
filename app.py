@@ -352,12 +352,25 @@ for i, (_, row) in enumerate(page_data.iterrows()):
     with cols[i % 2]:
         with st.container(border=True):
 
-            # Cabecera
-            h1, h2 = st.columns([5,1])
-            with h1:
-                st.markdown(f"**{row['nombre_empresa']}**")
-            with h2:
-                if row['tipo']: st.markdown(f"`{row['tipo']}`")
+            # Cabecera con indicador de estado (se actualiza con cada cambio)
+            COLOR_CARD = {
+                'No cliente':       '#6c757d',
+                'Potencial Cliente':'#0d6efd',
+                'Cliente':          '#198754',
+                'No le interesa':   '#dc3545',
+            }
+            ecl_actual = st.session_state.get(f"ecl_{cid}", row['estado_cliente'])
+            ec_actual  = st.session_state.get(f"ec_{cid}",  row['estado_contacto'])
+            dot_color  = COLOR_CARD.get(ecl_actual, '#6c757d')
+            tipo_txt   = f"<small style='color:#888'>{row['tipo']}</small>" if row['tipo'] else ""
+            st.markdown(
+                f'<div style="display:flex;justify-content:space-between;align-items:center">'
+                f'<b>{row["nombre_empresa"]}</b>'
+                f'<span>{tipo_txt} &nbsp;'
+                f'<span style="display:inline-block;width:12px;height:12px;border-radius:50%;'
+                f'background:{dot_color};vertical-align:middle;margin-left:4px" '
+                f'title="{ecl_actual}"></span></span></div>',
+                unsafe_allow_html=True)
 
             dir_icon = "✅" if row['tiene_altura'] else "⚠️"
             dir_txt  = row['direccion'] if row['direccion'] else "*sin dirección*"
