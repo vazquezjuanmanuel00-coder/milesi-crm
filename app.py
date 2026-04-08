@@ -12,24 +12,41 @@ USUARIOS        = ['Matias', 'Administracion']
 ESTADO_CONTACTO = ['Sin gestionar', 'Contactado', 'No se logró contacto', 'No se contactó']
 ESTADO_CLIENTE  = ['No cliente', 'Potencial Cliente', 'Cliente', 'No le interesa']
 
-def tiene_altura(direccion):
-    """True si la dirección tiene un número de 3+ dígitos (altura real)."""
-    return bool(re.search(r'\b\d{3,}\b', str(direccion))) if direccion else False
+COLOR_EC = {
+    'Sin gestionar':        '#6c757d',
+    'Contactado':           '#198754',
+    'No se logró contacto': '#e67e00',
+    'No se contactó':       '#dc3545',
+}
+COLOR_ECL = {
+    'No cliente':       '#6c757d',
+    'Potencial Cliente':'#0d6efd',
+    'Cliente':          '#198754',
+    'No le interesa':   '#dc3545',
+}
+
+def pill_html(texto, color_map):
+    color = color_map.get(texto, '#6c757d')
+    return (f'<span style="background:{color};color:#fff;padding:3px 12px;'
+            f'border-radius:999px;font-size:11px;font-weight:700;'
+            f'display:inline-block;margin:2px 0">{texto}</span>')
+
+def tiene_altura(d):
+    return bool(re.search(r'\b\d{3,}\b', str(d))) if d else False
 
 # ── Supabase ───────────────────────────────────────────────────────────────────
 @st.cache_resource
-def get_supabase() -> Client:
+def get_sb() -> Client:
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 @st.cache_data(ttl=300)
 def load_crm():
-    sb = get_supabase()
+    sb = get_sb()
     rows, limit, offset = [], 1000, 0
     while True:
-        res = sb.table('crm_contactos').select('*').range(offset, offset + limit - 1).execute()
+        res = sb.table('crm_contactos').select('*').range(offset, offset+limit-1).execute()
         rows.extend(res.data)
-        if len(res.data) < limit:
-            break
+        if len(res.data) < limit: break
         offset += limit
     df = pd.DataFrame(rows).fillna('')
     df['id'] = df['id'].astype(int)
@@ -38,79 +55,83 @@ def load_crm():
 
 @st.cache_data(ttl=20)
 def load_tracking():
-    sb = get_supabase()
+    sb = get_sb()
     res = sb.table('crm_seguimiento').select('*').execute()
     if res.data:
         df = pd.DataFrame(res.data).fillna('')
         df['id'] = df['id'].astype(int)
         return df
-    return pd.DataFrame(columns=[
-        'id','estado_contacto','estado_cliente',
-        'asignado_a','notas','actualizado_por',
-        'ultima_actualizacion','vendedor'
-    ])
+    return pd.DataFrame(columns=['id','estado_contacto','estado_cliente',
+                                  'asignado_a','notas','actualizado_por',
+                                  'ultima_actualizacion','vendedor'])
 
 @st.cache_data(ttl=30)
 def load_vendors():
-    sb = get_supabase()
-    res = sb.table('vendedores').select('*').order('id').execute()
-    return res.data if res.data else [{'id': i, 'nombre': f'Vendedor {i}'} for i in range(1, 6)]
+    res = get_sb().table('vendedores').select('*').order('id').execute()
+    return res.data if res.data else [{'id':i,'nombre':f'Vendedor {i}'} for i in range(1,6)]
 
 def save_vendor(vid, nombre):
-    get_supabase().table('vendedores').upsert({'id': vid, 'nombre': nombre}).execute()
+    get_sb().table('vendedores').upsert({'id':vid,'nombre':nombre}).execute()
     st.cache_data.clear()
 
 def upsert_rows(rows):
-    get_supabase().table('crm_seguimiento').upsert(rows).execute()
+    get_sb().table('crm_seguimiento').upsert(rows).execute()
     st.cache_data.clear()
 
 def merge_data(crm, tracking):
     df = crm.merge(tracking, on='id', how='left')
-    df['estado_contacto']      = df['estado_contacto'].fillna('Sin gestionar')
-    df['estado_cliente']       = df['estado_cliente'].fillna('No cliente')
-    df['asignado_a']           = df['asignado_a'].fillna('')
-    df['vendedor']             = df['vendedor'].fillna('')
-    df['notas']                = df['notas'].fillna('')
-    df['actualizado_por']      = df['actualizado_por'].fillna('')
-    df['ultima_actualizacion'] = df['ultima_actualizacion'].fillna('')
+    for col, default in [('estado_contacto','Sin gestionar'),('estado_cliente','No cliente'),
+                          ('asignado_a',''),('vendedor',''),('notas',''),
+                          ('actualizado_por',''),('ultima_actualizacion','')]:
+        df[col] = df[col].fillna(default)
     return df
+
+def make_row(row, ec, ecl, vend, nota, usuario):
+    return {
+        'id':                   int(row['id']),
+        'estado_contacto':      ec  or 'Sin gestionar',
+        'estado_cliente':       ecl or 'No cliente',
+        'vendedor':             vend or '',
+        'notas':                nota or '',
+        'asignado_a':           row.get('asignado_a',''),
+        'actualizado_por':      usuario,
+        'ultima_actualizacion': datetime.now().strftime('%Y-%m-%d %H:%M'),
+    }
 
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(page_title='CRM Milesi', layout='wide', page_icon='📋')
 st.markdown("""
 <style>
-div[data-testid="metric-container"] {
-    background:#f8f9fa; border:1px solid #dee2e6;
-    border-radius:8px; padding:12px;
-}
-</style>
-""", unsafe_allow_html=True)
+div[data-testid="metric-container"]{
+    background:#f8f9fa;border:1px solid #dee2e6;border-radius:8px;padding:12px}
+div[data-testid="stVerticalBlockBorderWrapper"]{border-radius:12px}
+</style>""", unsafe_allow_html=True)
 
 # ── Login ──────────────────────────────────────────────────────────────────────
 if 'usuario' not in st.session_state:
     st.session_state.usuario = None
+if 'page' not in st.session_state:
+    st.session_state.page = 0
 
 if st.session_state.usuario is None:
     st.markdown("<br><br>", unsafe_allow_html=True)
-    _, col, _ = st.columns([1, 2, 1])
+    _, col, _ = st.columns([1,2,1])
     with col:
         st.markdown("## 📋 CRM — Local Electrodomésticos")
         st.markdown("#### ¿Quién sos?")
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button('👤  Matias', use_container_width=True, type='primary'):
-            st.session_state.usuario = 'Matias'
-            st.rerun()
+            st.session_state.usuario = 'Matias'; st.rerun()
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button('🏢  Administracion', use_container_width=True):
-            st.session_state.usuario = 'Administracion'
-            st.rerun()
+            st.session_state.usuario = 'Administracion'; st.rerun()
     st.stop()
 
 # ── Datos ──────────────────────────────────────────────────────────────────────
 crm     = load_crm()
 tracking= load_tracking()
 vendors = load_vendors()
-vnames  = [''] + [v['nombre'] for v in vendors]
+vnames  = [v['nombre'] for v in vendors]
 df      = merge_data(crm, tracking)
 usuario = st.session_state.usuario
 
@@ -119,13 +140,11 @@ with st.sidebar:
     st.markdown(f"### 👤 {usuario}")
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("Cambiar usuario", use_container_width=True):
-            st.session_state.usuario = None
-            st.rerun()
+        if st.button("Cambiar", use_container_width=True):
+            st.session_state.usuario = None; st.rerun()
     with c2:
         if st.button("Actualizar", use_container_width=True):
-            st.cache_data.clear()
-            st.rerun()
+            st.cache_data.clear(); st.rerun()
 
     st.divider()
     st.markdown("### 🔍 Filtros")
@@ -133,61 +152,54 @@ with st.sidebar:
     filtro_ciudad   = st.multiselect("Ciudad / Zona", ciudades)
     filtro_ec       = st.multiselect("Estado Contacto", ESTADO_CONTACTO)
     filtro_ecl      = st.multiselect("Estado Cliente", ESTADO_CLIENTE)
-    filtro_vendedor = st.multiselect("Vendedor", [v['nombre'] for v in vendors])
+    filtro_vendedor = st.multiselect("Vendedor", vnames)
     filtro_texto    = st.text_input("🔎 Buscar empresa...")
     solo_altura     = st.toggle("Solo con dirección válida", value=False)
 
     st.divider()
-
-    # Gestión de vendedores (solo Admin)
     if usuario == 'Administracion':
         with st.expander("⚙️ Gestionar Vendedores"):
-            st.caption("Renombrá cada vendedor")
             with st.form("form_vendors"):
-                nuevos = {}
-                for v in vendors:
-                    nuevos[v['id']] = st.text_input(
-                        f"Vendedor {v['id']}", value=v['nombre'], key=f"vend_{v['id']}")
+                nuevos = {v['id']: st.text_input(f"Vendedor {v['id']}", value=v['nombre'],
+                          key=f"vend_cfg_{v['id']}") for v in vendors}
                 if st.form_submit_button("Guardar nombres", type='primary'):
                     for vid, nombre in nuevos.items():
                         save_vendor(vid, nombre)
-                    st.success("Nombres actualizados")
-                    st.rerun()
+                    st.success("Actualizado"); st.rerun()
         st.divider()
-        vista = st.radio("Vista", ['Contactos', 'Comparativa por vendedor'])
+        vista = st.radio("Vista", ['Ficheros', 'Comparativa por vendedor'])
     else:
-        vista = 'Contactos'
+        vista = 'Ficheros'
 
-# ── Aplicar filtros ────────────────────────────────────────────────────────────
-mask = pd.Series([True] * len(df), index=df.index)
-if filtro_ciudad:    mask &= df['ciudad'].isin(filtro_ciudad)
-if filtro_ec:        mask &= df['estado_contacto'].isin(filtro_ec)
-if filtro_ecl:       mask &= df['estado_cliente'].isin(filtro_ecl)
-if filtro_vendedor:  mask &= df['vendedor'].isin(filtro_vendedor)
-if filtro_texto:     mask &= df['nombre_empresa'].str.contains(filtro_texto, case=False, na=False)
-if solo_altura:      mask &= df['tiene_altura']
+# ── Filtros ────────────────────────────────────────────────────────────────────
+mask = pd.Series([True]*len(df), index=df.index)
+if filtro_ciudad:   mask &= df['ciudad'].isin(filtro_ciudad)
+if filtro_ec:       mask &= df['estado_contacto'].isin(filtro_ec)
+if filtro_ecl:      mask &= df['estado_cliente'].isin(filtro_ecl)
+if filtro_vendedor: mask &= df['vendedor'].isin(filtro_vendedor)
+if filtro_texto:    mask &= df['nombre_empresa'].str.contains(filtro_texto, case=False, na=False)
+if solo_altura:     mask &= df['tiene_altura']
 
 filtered = df[mask].reset_index(drop=True)
 
-# ── Header + métricas ──────────────────────────────────────────────────────────
+# Reset página si cambió el filtro
+total_pages = max(1, (len(filtered)-1)//12+1)
+if st.session_state.page >= total_pages:
+    st.session_state.page = 0
+
+# ── Header ─────────────────────────────────────────────────────────────────────
 st.markdown("## 📋 CRM — Local Electrodomésticos")
 st.markdown(f"*Usuario: **{usuario}***")
 st.divider()
 
-total       = len(df)
-con_altura  = int(df['tiene_altura'].sum())
-sin_gest    = len(df[df['estado_contacto'] == 'Sin gestionar'])
-contactados = len(df[df['estado_contacto'] == 'Contactado'])
-potenciales = len(df[df['estado_cliente']  == 'Potencial Cliente'])
-clientes    = len(df[df['estado_cliente']  == 'Cliente'])
-
+# Métricas
 c1,c2,c3,c4,c5,c6 = st.columns(6)
-c1.metric("Total",         total)
-c2.metric("Con dirección", con_altura)
-c3.metric("Sin gestionar", sin_gest)
-c4.metric("Contactados",   contactados)
-c5.metric("Potencial",     potenciales)
-c6.metric("Clientes",      clientes)
+c1.metric("Total",         len(df))
+c2.metric("Con dirección", int(df['tiene_altura'].sum()))
+c3.metric("Sin gestionar", len(df[df['estado_contacto']=='Sin gestionar']))
+c4.metric("Contactados",   len(df[df['estado_contacto']=='Contactado']))
+c5.metric("Potencial",     len(df[df['estado_cliente']=='Potencial Cliente']))
+c6.metric("Clientes",      len(df[df['estado_cliente']=='Cliente']))
 st.divider()
 
 # ── Vista comparativa ──────────────────────────────────────────────────────────
@@ -201,119 +213,111 @@ if vista == 'Comparativa por vendedor':
             st.metric("Asignados", len(sub))
             if len(sub):
                 tbl = sub['estado_cliente'].value_counts().reset_index()
-                tbl.columns = ['Estado', 'N']
+                tbl.columns = ['Estado','N']
                 st.dataframe(tbl, hide_index=True, use_container_width=True)
     st.stop()
 
 # ── Asignación masiva ──────────────────────────────────────────────────────────
-st.markdown(f"### 📝 Contactos — {len(filtered)} de {total}")
-
-with st.expander(f"⚡ Asignación masiva — asignar los {len(filtered)} filtrados de una vez"):
-    st.caption("Asigna todos los contactos del filtro actual a un vendedor.")
-    colv, colb = st.columns([2, 1])
-    with colv:
-        vendedor_masivo = st.selectbox(
-            "Vendedor:", [v['nombre'] for v in vendors], key='vend_masivo')
-    with colb:
+st.markdown(f"### 📇 {len(filtered)} contactos")
+with st.expander(f"⚡ Asignación masiva"):
+    st.caption(f"Asigna todos los {len(filtered)} contactos del filtro actual a un vendedor.")
+    cv, cb = st.columns([3,1])
+    with cv:
+        vend_masivo = st.selectbox("Vendedor:", vnames, key='vend_masivo')
+    with cb:
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button(f"Asignar {len(filtered)} contactos", type='primary', use_container_width=True):
+        if st.button(f"Asignar {len(filtered)}", type='primary', use_container_width=True):
             ahora = datetime.now().strftime('%Y-%m-%d %H:%M')
             upsert_rows([{
-                'id':                   int(r['id']),
-                'estado_contacto':      r['estado_contacto'],
-                'estado_cliente':       r['estado_cliente'],
-                'asignado_a':           r.get('asignado_a', ''),
-                'notas':                r['notas'],
-                'vendedor':             vendedor_masivo,
-                'actualizado_por':      usuario,
-                'ultima_actualizacion': ahora,
+                'id': int(r['id']), 'estado_contacto': r['estado_contacto'],
+                'estado_cliente': r['estado_cliente'], 'vendedor': vend_masivo,
+                'asignado_a': r.get('asignado_a',''), 'notas': r['notas'],
+                'actualizado_por': usuario, 'ultima_actualizacion': ahora,
             } for _, r in filtered.iterrows()])
-            st.success(f"{len(filtered)} contactos asignados a {vendedor_masivo}")
+            st.success(f"{len(filtered)} contactos → {vend_masivo}")
             st.rerun()
 
-# ── Tabla editable ─────────────────────────────────────────────────────────────
-SHOW = ['_sel','id','tiene_altura','nombre_empresa','ciudad',
-        'direccion','telefono','estado_contacto','estado_cliente','vendedor','notas']
+st.markdown("<br>", unsafe_allow_html=True)
 
-tbl = filtered.copy()
-tbl['_sel'] = False
+# ── Paginación ─────────────────────────────────────────────────────────────────
+PER_PAGE  = 12
+start     = st.session_state.page * PER_PAGE
+end       = min(start + PER_PAGE, len(filtered))
+page_data = filtered.iloc[start:end]
 
-edited = st.data_editor(
-    tbl[[c for c in SHOW if c in tbl.columns]],
-    column_config={
-        '_sel': st.column_config.CheckboxColumn(
-            '✓', width='small'),
-        'id': st.column_config.NumberColumn(
-            'ID', disabled=True, width='small'),
-        'tiene_altura': st.column_config.CheckboxColumn(
-            'Dir.✓', disabled=True, width='small',
-            help='Tiene altura en la dirección'),
-        'nombre_empresa': st.column_config.TextColumn(
-            'Empresa', disabled=True, width='large'),
-        'ciudad': st.column_config.TextColumn(
-            'Ciudad', disabled=True, width='medium'),
-        'direccion': st.column_config.TextColumn(
-            'Dirección', disabled=True, width='large'),
-        'telefono': st.column_config.TextColumn(
-            'Teléfono', disabled=True, width='medium'),
-        'estado_contacto': st.column_config.SelectboxColumn(
-            'Contacto', options=ESTADO_CONTACTO, required=True, width='medium'),
-        'estado_cliente': st.column_config.SelectboxColumn(
-            'Cliente', options=ESTADO_CLIENTE, required=True, width='medium'),
-        'vendedor': st.column_config.SelectboxColumn(
-            'Vendedor', options=vnames, width='medium'),
-        'notas': st.column_config.TextColumn('Notas', width='large'),
-    },
-    hide_index=True,
-    use_container_width=True,
-    num_rows='fixed',
-    key='tabla_editor',
-)
+pA, pB, pC = st.columns([1,3,1])
+with pA:
+    if st.button("← Anterior", disabled=st.session_state.page==0, use_container_width=True):
+        st.session_state.page -= 1; st.rerun()
+with pB:
+    st.markdown(f"<div style='text-align:center;padding-top:6px'>Página <b>{st.session_state.page+1}</b> de <b>{total_pages}</b></div>",
+                unsafe_allow_html=True)
+with pC:
+    if st.button("Siguiente →", disabled=st.session_state.page>=total_pages-1, use_container_width=True):
+        st.session_state.page += 1; st.rerun()
 
-# ── Barra de acciones ──────────────────────────────────────────────────────────
-selected = edited[edited['_sel'] == True]
-n_sel    = len(selected)
+st.markdown("<br>", unsafe_allow_html=True)
 
-colA, colB, colC, _ = st.columns([1.2, 1, 1.8, 2])
+# ── Ficheros (cards) ───────────────────────────────────────────────────────────
+cols = st.columns(2)
+for i, (_, row) in enumerate(page_data.iterrows()):
+    cid = int(row['id'])
+    with cols[i % 2]:
+        with st.container(border=True):
 
-with colA:
-    if st.button('💾 Guardar cambios', type='primary', use_container_width=True):
-        ahora = datetime.now().strftime('%Y-%m-%d %H:%M')
-        upsert_rows([{
-            'id':                   int(r['id']),
-            'estado_contacto':      r['estado_contacto'],
-            'estado_cliente':       r['estado_cliente'],
-            'asignado_a':           r.get('asignado_a', ''),
-            'notas':                r['notas'] or '',
-            'vendedor':             r['vendedor'] or '',
-            'actualizado_por':      usuario,
-            'ultima_actualizacion': ahora,
-        } for _, r in edited.iterrows()])
-        st.success(f"Guardado — {len(edited)} registros")
-        st.rerun()
+            # ── Cabecera del fichero ───────────────────────────────────────────
+            h1, h2 = st.columns([5,1])
+            with h1:
+                st.markdown(f"**{row['nombre_empresa']}**")
+            with h2:
+                if row['tipo']:
+                    st.markdown(f"`{row['tipo']}`")
 
-if n_sel > 0:
-    with colB:
-        st.info(f"{n_sel} marcados")
-    with colC:
-        vend_sel = st.selectbox(
-            "Asignar marcados a:",
-            [v['nombre'] for v in vendors],
-            key='vend_sel', label_visibility='collapsed')
-        if st.button(f"Asignar {n_sel} marcados", use_container_width=True):
-            ahora = datetime.now().strftime('%Y-%m-%d %H:%M')
-            upsert_rows([{
-                'id':                   int(r['id']),
-                'estado_contacto':      r['estado_contacto'],
-                'estado_cliente':       r['estado_cliente'],
-                'asignado_a':           r.get('asignado_a', ''),
-                'notas':                r['notas'] or '',
-                'vendedor':             vend_sel,
-                'actualizado_por':      usuario,
-                'ultima_actualizacion': ahora,
-            } for _, r in selected.iterrows()])
-            st.success(f"{n_sel} contactos asignados a {vend_sel}")
-            st.rerun()
+            # Dirección + teléfono
+            dir_icon = "✅" if row['tiene_altura'] else "⚠️"
+            dir_txt  = row['direccion'] if row['direccion'] else "*sin dirección*"
+            tel_txt  = f"📞 {row['telefono']}" if row['telefono'] else ""
+            st.caption(f"📍 {row['ciudad']}  ·  {dir_icon} {dir_txt}  {tel_txt}")
+
+            # Pills de estado actual (solo visual)
+            ec_pill  = pill_html(row['estado_contacto'], COLOR_EC)
+            ecl_pill = pill_html(row['estado_cliente'],  COLOR_ECL)
+            vend_txt = f'<span style="background:#e9ecef;color:#495057;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600">👤 {row["vendedor"]}</span>' if row['vendedor'] else ''
+            st.markdown(f"{ec_pill} &nbsp; {ecl_pill} &nbsp; {vend_txt}", unsafe_allow_html=True)
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            # ── Edición rápida ─────────────────────────────────────────────────
+            ec_idx  = ESTADO_CONTACTO.index(row['estado_contacto']) if row['estado_contacto'] in ESTADO_CONTACTO else 0
+            ecl_idx = ESTADO_CLIENTE.index(row['estado_cliente'])   if row['estado_cliente']  in ESTADO_CLIENTE  else 0
+
+            new_ec = st.pills(
+                "Contacto", ESTADO_CONTACTO,
+                default=ESTADO_CONTACTO[ec_idx],
+                key=f"ec_{cid}", label_visibility='collapsed')
+
+            new_ecl = st.pills(
+                "Cliente", ESTADO_CLIENTE,
+                default=ESTADO_CLIENTE[ecl_idx],
+                key=f"ecl_{cid}", label_visibility='collapsed')
+
+            va, vb = st.columns([3,1])
+            with va:
+                vend_idx = (vnames.index(row['vendedor'])+1) if row['vendedor'] in vnames else 0
+                new_vend = st.selectbox(
+                    "Vendedor", ['Sin asignar']+vnames,
+                    index=vend_idx,
+                    key=f"vend_{cid}", label_visibility='collapsed')
+            with vb:
+                new_nota = st.text_input(
+                    "Nota", value=row['notas'],
+                    placeholder="nota...",
+                    key=f"nota_{cid}", label_visibility='collapsed')
+
+            if st.button("💾 Guardar", key=f"save_{cid}", use_container_width=True):
+                vend_final = new_vend if new_vend != 'Sin asignar' else ''
+                upsert_rows([make_row(row, new_ec, new_ecl, vend_final, new_nota, usuario)])
+                st.rerun()
 
 st.divider()
 st.caption("CRM Local Electrodomésticos · Grupo Yex")
