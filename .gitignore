@@ -1,0 +1,5 @@
+.streamlit/secrets.toml
+migrar_supabase.py
+seguimiento.csv
+__pycache__/
+*.pyc
