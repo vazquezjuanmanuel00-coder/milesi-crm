@@ -153,22 +153,64 @@ div[data-testid="stPills"] span[aria-selected="true"]{{
 </style>""", unsafe_allow_html=True)
 
 # ── Login ──────────────────────────────────────────────────────────────────────
-if 'usuario'     not in st.session_state: st.session_state.usuario     = None
-if 'page'        not in st.session_state: st.session_state.page        = 0
-if 'last_action' not in st.session_state: st.session_state.last_action = None
+PASSWORDS = {'Matias': 'matias', 'Administracion': 'admin'}
+
+if 'usuario'        not in st.session_state: st.session_state.usuario        = None
+if 'login_user_sel' not in st.session_state: st.session_state.login_user_sel = None
+if 'page'           not in st.session_state: st.session_state.page           = 0
+if 'last_action'    not in st.session_state: st.session_state.last_action    = None
 
 if st.session_state.usuario is None:
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    _, col, _ = st.columns([1,2,1])
+    _, col, _ = st.columns([1, 1.6, 1])
     with col:
-        st.markdown("## 📋 CRM — Local Electrodomésticos")
+        # Logo Milesi grande centrado
+        st.markdown(f"""
+        <div style="text-align:center;padding:40px 0 24px 0">
+          <div style="display:inline-block;border:4px solid {MILESI_TEAL};
+                      border-radius:50%/50%;padding:18px 40px;background:white;
+                      box-shadow:0 4px 20px rgba(0,131,143,0.2)">
+            <div style="font-size:32px;font-weight:900;letter-spacing:-1px;line-height:1.1">
+              <span style="color:#222">Mile<span style="font-size:36px">SI</span></span>
+              <span style="color:{MILESI_ORANGE}"> Hogar</span>
+            </div>
+            <div style="font-size:11px;color:#777;letter-spacing:0.5px;margin-top:2px">
+              La atención que estabas esperando
+            </div>
+          </div>
+          <div style="margin-top:16px;font-size:13px;color:#aaa;letter-spacing:1px;text-transform:uppercase">
+            Sistema de Gestión Comercial
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+
         st.markdown("#### ¿Quién sos?")
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button('👤  Matias',        use_container_width=True, type='primary'):
-            st.session_state.usuario = 'Matias';        st.rerun()
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button('🏢  Administracion', use_container_width=True):
-            st.session_state.usuario = 'Administracion'; st.rerun()
+
+        sel = st.session_state.login_user_sel
+
+        if sel is None:
+            if st.button('Matias', use_container_width=True, type='primary'):
+                st.session_state.login_user_sel = 'Matias'; st.rerun()
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button('Administracion', use_container_width=True):
+                st.session_state.login_user_sel = 'Administracion'; st.rerun()
+        else:
+            st.markdown(f"**Ingresando como: {sel}**")
+            pwd = st.text_input("Contraseña", type='password', placeholder="••••••••",
+                                key='pwd_input')
+            col_ok, col_back = st.columns([2,1])
+            with col_ok:
+                if st.button('Entrar', use_container_width=True, type='primary'):
+                    if pwd == PASSWORDS.get(sel, ''):
+                        st.session_state.usuario = sel
+                        st.session_state.login_user_sel = None
+                        st.rerun()
+                    else:
+                        st.error("Contraseña incorrecta")
+            with col_back:
+                if st.button('Volver', use_container_width=True):
+                    st.session_state.login_user_sel = None; st.rerun()
+
     st.stop()
 
 # ── Datos ──────────────────────────────────────────────────────────────────────
