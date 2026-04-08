@@ -450,8 +450,8 @@ if os.path.exists(_logo_path):
     st.markdown(
         f'<div style="display:flex;align-items:center;justify-content:flex-end;'
         f'gap:10px;opacity:0.6;padding:4px 0">'
-        f'<span style="font-size:11px;color:#888">Desarrollado por</span>'
-        f'<img src="data:image/png;base64,{_b64}" style="height:28px">'
+        f'<span style="font-size:13px;color:#888">Desarrollado por</span>'
+        f'<img src="data:image/png;base64,{_b64}" style="height:60px">'
         f'</div>',
         unsafe_allow_html=True
     )
