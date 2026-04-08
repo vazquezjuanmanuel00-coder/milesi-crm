@@ -76,7 +76,25 @@ def save_vendor(vid, nombre):
 
 def upsert_rows(rows):
     get_sb().table('crm_seguimiento').upsert(rows).execute()
-    st.cache_data.clear()
+    load_tracking.clear()  # solo limpia tracking, no los contactos
+
+def auto_save(cid, row_dict, usuario):
+    """Callback: guarda el card apenas cambia cualquier widget."""
+    ec   = st.session_state.get(f"ec_{cid}",   row_dict['estado_contacto'])
+    ecl  = st.session_state.get(f"ecl_{cid}",  row_dict['estado_cliente'])
+    vend = st.session_state.get(f"vend_{cid}",  row_dict['vendedor'])
+    nota = st.session_state.get(f"nota_{cid}",  row_dict['notas'])
+    upsert_rows([{
+        'id':                   cid,
+        'estado_contacto':      ec   or 'Sin gestionar',
+        'estado_cliente':       ecl  or 'No cliente',
+        'vendedor':             (vend if vend and vend != 'Sin asignar' else ''),
+        'notas':                nota or '',
+        'asignado_a':           row_dict.get('asignado_a', ''),
+        'actualizado_por':      usuario,
+        'ultima_actualizacion': datetime.now().strftime('%Y-%m-%d %H:%M'),
+    }])
+    st.toast("Guardado ✓")
 
 def merge_data(crm, tracking):
     df = crm.merge(tracking, on='id', how='left')
@@ -279,45 +297,39 @@ for i, (_, row) in enumerate(page_data.iterrows()):
             tel_txt  = f"📞 {row['telefono']}" if row['telefono'] else ""
             st.caption(f"📍 {row['ciudad']}  ·  {dir_icon} {dir_txt}  {tel_txt}")
 
-            # Pills de estado actual (solo visual)
-            ec_pill  = pill_html(row['estado_contacto'], COLOR_EC)
-            ecl_pill = pill_html(row['estado_cliente'],  COLOR_ECL)
-            vend_txt = f'<span style="background:#e9ecef;color:#495057;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600">👤 {row["vendedor"]}</span>' if row['vendedor'] else ''
-            st.markdown(f"{ec_pill} &nbsp; {ecl_pill} &nbsp; {vend_txt}", unsafe_allow_html=True)
+            # ── Edición instantánea — guarda solo al tocar ────────────────────
+            row_dict = row.to_dict()
+            cb_args  = (cid, row_dict, usuario)
 
-            st.markdown("<br>", unsafe_allow_html=True)
-
-            # ── Edición rápida ─────────────────────────────────────────────────
             ec_idx  = ESTADO_CONTACTO.index(row['estado_contacto']) if row['estado_contacto'] in ESTADO_CONTACTO else 0
             ecl_idx = ESTADO_CLIENTE.index(row['estado_cliente'])   if row['estado_cliente']  in ESTADO_CLIENTE  else 0
 
-            new_ec = st.pills(
+            st.pills(
                 "Contacto", ESTADO_CONTACTO,
                 default=ESTADO_CONTACTO[ec_idx],
-                key=f"ec_{cid}", label_visibility='collapsed')
+                key=f"ec_{cid}", label_visibility='collapsed',
+                on_change=auto_save, args=cb_args)
 
-            new_ecl = st.pills(
+            st.pills(
                 "Cliente", ESTADO_CLIENTE,
                 default=ESTADO_CLIENTE[ecl_idx],
-                key=f"ecl_{cid}", label_visibility='collapsed')
+                key=f"ecl_{cid}", label_visibility='collapsed',
+                on_change=auto_save, args=cb_args)
 
-            va, vb = st.columns([3,1])
+            va, vb = st.columns([3, 1])
             with va:
                 vend_idx = (vnames.index(row['vendedor'])+1) if row['vendedor'] in vnames else 0
-                new_vend = st.selectbox(
+                st.selectbox(
                     "Vendedor", ['Sin asignar']+vnames,
                     index=vend_idx,
-                    key=f"vend_{cid}", label_visibility='collapsed')
+                    key=f"vend_{cid}", label_visibility='collapsed',
+                    on_change=auto_save, args=cb_args)
             with vb:
-                new_nota = st.text_input(
+                st.text_input(
                     "Nota", value=row['notas'],
                     placeholder="nota...",
-                    key=f"nota_{cid}", label_visibility='collapsed')
-
-            if st.button("💾 Guardar", key=f"save_{cid}", use_container_width=True):
-                vend_final = new_vend if new_vend != 'Sin asignar' else ''
-                upsert_rows([make_row(row, new_ec, new_ecl, vend_final, new_nota, usuario)])
-                st.rerun()
+                    key=f"nota_{cid}", label_visibility='collapsed',
+                    on_change=auto_save, args=cb_args)
 
 st.divider()
 st.caption("CRM Local Electrodomésticos · Grupo Yex")
